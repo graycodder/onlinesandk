@@ -115,6 +115,8 @@ export const AdminCollectionsPage: React.FC = () => {
     } catch (err: any) {
       alert(`Upload failed: ${err.message}`);
       setUploadProgress(null);
+    } finally {
+      e.target.value = '';
     }
   };
 
