@@ -3,8 +3,8 @@ import {
   doc,
   getDocs,
   getDoc,
+  setDoc,
   addDoc,
-  updateDoc,
   deleteDoc,
   query,
   where,
@@ -76,6 +76,21 @@ export const getAllCollectionsAdmin = async (): Promise<Collection[]> => {
           id: docSnap.id,
           ...docSnap.data(),
         })) as Collection[];
+      } else {
+        // Auto-seed initial collections to Firestore so they exist as real documents
+        try {
+          for (const col of initialCollections) {
+            const colRef = doc(db, 'collections', col.id);
+            await setDoc(colRef, {
+              ...col,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+          return initialCollections;
+        } catch (seedErr) {
+          console.warn('Auto-seed collections failed:', seedErr);
+        }
       }
     } catch (err) {
       console.warn('Firestore admin collections query error:', err);
@@ -165,10 +180,34 @@ export const updateCollection = async (id: string, updates: Partial<Collection>)
   if (isFirebaseConfigured() && db) {
     try {
       const docRef = doc(db, 'collections', id);
-      await updateDoc(docRef, {
-        ...cleanUpdates,
-        updatedAt: serverTimestamp(),
-      });
+      const existingDoc = await getDoc(docRef);
+      
+      if (!existingDoc.exists()) {
+        // Document didn't exist in Firestore yet (e.g. initial seed item)
+        // Find default base collection so full document is saved
+        const fallbackCol = initialCollections.find((c) => c.id === id) ||
+          getLocalCollections().find((c) => c.id === id);
+        await setDoc(
+          docRef,
+          {
+            ...(fallbackCol || {}),
+            ...cleanUpdates,
+            id,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        await setDoc(
+          docRef,
+          {
+            ...cleanUpdates,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
       return;
     } catch (err) {
       console.error('Error updating collection in Firestore:', err);

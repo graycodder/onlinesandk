@@ -12,9 +12,11 @@ import {
   MessageCircle,
   Database,
   CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 import { getAllProductsAdmin } from '../../services/productService';
 import { getAllCollectionsAdmin } from '../../services/collectionService';
+import { seedCatalogueToDatabase } from '../../services/seedService';
 import { useSettings } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
 import type { Product, Collection } from '../../types';
@@ -27,24 +29,45 @@ export const AdminDashboardPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const loadDashboard = async () => {
+    try {
+      const [prods, cols] = await Promise.all([
+        getAllProductsAdmin(),
+        getAllCollectionsAdmin(),
+      ]);
+      setProducts(prods);
+      setCollections(cols);
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const [prods, cols] = await Promise.all([
-          getAllProductsAdmin(),
-          getAllCollectionsAdmin(),
-        ]);
-        setProducts(prods);
-        setCollections(cols);
-      } catch (err) {
-        console.error('Failed to load admin dashboard:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     loadDashboard();
   }, []);
+
+  const handleSyncDatabase = async () => {
+    if (!window.confirm('Sync sample collections and garments to Firebase Cloud? Existing data will be preserved and merged.')) {
+      return;
+    }
+    setSyncing(true);
+    setSyncNotice(null);
+    try {
+      const res = await seedCatalogueToDatabase();
+      await loadDashboard();
+      setSyncNotice(`Successfully synchronized ${res.collectionsCount} collections and ${res.productsCount} garments to Firebase!`);
+      setTimeout(() => setSyncNotice(null), 5000);
+    } catch (err: any) {
+      alert(`Sync failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const publishedProducts = products.filter((p) => p.status === 'published');
   const draftProducts = products.filter((p) => p.status === 'draft');
@@ -93,6 +116,13 @@ export const AdminDashboardPage: React.FC = () => {
           </Link>
         </div>
       </div>
+
+      {syncNotice && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 rounded-sm fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{syncNotice}</span>
+        </div>
+      )}
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
@@ -180,6 +210,17 @@ export const AdminDashboardPage: React.FC = () => {
             <span className="text-[11px] text-[#8A7869] block pt-1">
               {isFirebaseActive ? 'Live production synchronisation' : 'Running offline / demo mode'}
             </span>
+            {isFirebaseActive && (
+              <button
+                type="button"
+                onClick={handleSyncDatabase}
+                disabled={syncing}
+                className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 text-[11px] font-medium bg-[#FAF7F2] border border-[#D9CEBF] text-[#292522] hover:bg-[#E8DCCB] transition-colors rounded-xs disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
+                <span>{syncing ? 'Syncing...' : 'Sync Catalogue to Cloud'}</span>
+              </button>
+            )}
           </div>
 
           <div className="pt-4 md:pt-0 md:pl-6 space-y-1">

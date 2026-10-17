@@ -3,8 +3,8 @@ import {
   doc,
   getDocs,
   getDoc,
+  setDoc,
   addDoc,
-  updateDoc,
   deleteDoc,
   query,
   where,
@@ -75,6 +75,21 @@ export const getAllProductsAdmin = async (): Promise<Product[]> => {
           id: docSnap.id,
           ...docSnap.data(),
         })) as Product[];
+      } else {
+        // Auto-seed initial products to Firestore so they exist as real documents
+        try {
+          for (const prod of initialProducts) {
+            const prodRef = doc(db, 'products', prod.id);
+            await setDoc(prodRef, {
+              ...prod,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+          return initialProducts;
+        } catch (seedErr) {
+          console.warn('Auto-seed products failed:', seedErr);
+        }
       }
     } catch (err) {
       console.warn('Firestore admin query error, falling back to local dataset:', err);
@@ -164,10 +179,32 @@ export const updateProduct = async (id: string, updates: Partial<Product>): Prom
   if (isFirebaseConfigured() && db) {
     try {
       const docRef = doc(db, 'products', id);
-      await updateDoc(docRef, {
-        ...cleanUpdates,
-        updatedAt: serverTimestamp(),
-      });
+      const existingDoc = await getDoc(docRef);
+      if (!existingDoc.exists()) {
+        // Document didn't exist in Firestore yet (e.g. initial seed product)
+        const fallbackProd = initialProducts.find((p) => p.id === id) ||
+          getLocalProducts().find((p) => p.id === id);
+        await setDoc(
+          docRef,
+          {
+            ...(fallbackProd || {}),
+            ...cleanUpdates,
+            id,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        await setDoc(
+          docRef,
+          {
+            ...cleanUpdates,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
       return;
     } catch (err) {
       console.error('Error updating product in Firestore:', err);
