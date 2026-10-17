@@ -39,7 +39,7 @@ export const Header: React.FC = () => {
       <AnnouncementBar />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20 sm:h-24">
+        <div className="flex items-center justify-between h-20 sm:h-28">
           {/* Mobile menu trigger */}
           <div className="flex items-center lg:hidden">
             <button
@@ -86,8 +86,8 @@ export const Header: React.FC = () => {
           </nav>
 
           {/* Center: Brand Logo */}
-          <div className="flex-1 lg:flex-initial flex justify-center py-2">
-            <Logo size="md" />
+          <div className="flex-1 lg:flex-initial flex justify-center py-1">
+            <Logo size="lg" />
           </div>
 
           {/* Right Navigation & Utility Icons */}
@@ -233,7 +233,7 @@ export const Header: React.FC = () => {
         <div className="relative w-4/5 max-w-sm bg-[#FAF7F2] h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto">
           <div>
             <div className="flex items-center justify-between pb-6 border-b border-[#E8E0D5]">
-              <Logo size="sm" showSubtitle={false} />
+              <Logo size="sm" showSubtitle={false} variant="dark" />
               <button
                 onClick={() => setMobileMenuOpen(false)}
                 className="p-2 text-[#292522] hover:text-[#8A7869]"
