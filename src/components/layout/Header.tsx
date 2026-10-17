@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { ShoppingBag, Search, Menu, X, Shield } from 'lucide-react';
 import { Logo } from '../common/Logo';
@@ -33,7 +34,8 @@ export const Header: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-[#FAF7F2]/95 backdrop-blur-md border-b border-[#E8E0D5] transition-all">
+    <>
+      <header className="sticky top-0 z-40 bg-[#FAF7F2]/95 backdrop-blur-md border-b border-[#E8E0D5] transition-all">
       <AnnouncementBar />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -217,59 +219,65 @@ export const Header: React.FC = () => {
         </div>
       )}
 
-      {/* Mobile Drawer Menu */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <div className="relative w-4/5 max-w-sm bg-[#FAF7F2] h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto">
-            <div>
-              <div className="flex items-center justify-between pb-6 border-b border-[#E8E0D5]">
-                <Logo size="sm" showSubtitle={false} />
-                <button
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="p-2 text-[#292522] hover:text-[#8A7869]"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+    </header>
 
-              <div className="mt-6 flex flex-col space-y-4">
-                {navLinks.map((link) => (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="text-base font-serif text-[#292522] hover:text-[#8A7869] py-1 border-b border-[#F5EFE6]"
-                  >
-                    {link.label}
-                  </Link>
-                ))}
-              </div>
+    {/* Mobile Drawer Menu — rendered via portal to escape header's stacking context */}
+    {mobileMenuOpen && createPortal(
+      <div className="fixed inset-0 z-[9999] flex lg:hidden">
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+        {/* Drawer panel */}
+        <div className="relative w-4/5 max-w-sm bg-[#FAF7F2] h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto">
+          <div>
+            <div className="flex items-center justify-between pb-6 border-b border-[#E8E0D5]">
+              <Logo size="sm" showSubtitle={false} />
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-2 text-[#292522] hover:text-[#8A7869]"
+                aria-label="Close navigation menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="pt-6 border-t border-[#E8E0D5] space-y-3">
-              <Link
-                to="/enquiry"
-                onClick={() => setMobileMenuOpen(false)}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-[#292522] text-[#FAF7F2] text-xs uppercase tracking-widest font-medium"
-              >
-                <ShoppingBag className="w-4 h-4" />
-                <span>View Enquiry Bag ({itemCount})</span>
-              </Link>
-              <Link
-                to="/admin/login"
-                onClick={() => setMobileMenuOpen(false)}
-                className="block text-center text-xs uppercase tracking-widest text-[#8A7869] hover:text-[#292522] py-2"
-              >
-                Administrator Login
-              </Link>
+            <div className="mt-6 flex flex-col space-y-4">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-base font-serif text-[#292522] hover:text-[#8A7869] py-1 border-b border-[#F5EFE6]"
+                >
+                  {link.label}
+                </Link>
+              ))}
             </div>
           </div>
+
+          <div className="pt-6 border-t border-[#E8E0D5] space-y-3">
+            <Link
+              to="/enquiry"
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-[#292522] text-[#FAF7F2] text-xs uppercase tracking-widest font-medium"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>View Enquiry Bag ({itemCount})</span>
+            </Link>
+            <Link
+              to="/admin/login"
+              onClick={() => setMobileMenuOpen(false)}
+              className="block text-center text-xs uppercase tracking-widest text-[#8A7869] hover:text-[#292522] py-2"
+            >
+              Administrator Login
+            </Link>
+          </div>
         </div>
-      )}
-    </header>
+      </div>,
+      document.body
+    )}
+    </>
   );
 };
