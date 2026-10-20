@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Upload,
@@ -27,6 +27,8 @@ const STANDARD_COLOURS = ['Ivory', 'Champagne', 'Midnight Black', 'Rose Gold', '
 
 export const AdminProductFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const preselectedCollectionId = searchParams.get('collection');
   const isEditing = Boolean(id);
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -80,11 +82,14 @@ export const AdminProductFormPage: React.FC = () => {
             navigate('/admin/products');
           }
         } else if (cols.length > 0) {
-          // Default to first collection
+          const matched = preselectedCollectionId
+            ? cols.find((c) => c.id === preselectedCollectionId || c.slug === preselectedCollectionId)
+            : null;
+          const targetCol = matched || cols[0];
           setFormData((prev) => ({
             ...prev,
-            categoryId: cols[0].id,
-            categoryName: cols[0].name,
+            categoryId: targetCol.id,
+            categoryName: targetCol.name,
           }));
         }
       } catch (err) {
@@ -95,7 +100,7 @@ export const AdminProductFormPage: React.FC = () => {
     };
 
     init();
-  }, [id, isEditing, navigate]);
+  }, [id, isEditing, navigate, preselectedCollectionId]);
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const name = e.target.value;
@@ -394,15 +399,25 @@ export const AdminProductFormPage: React.FC = () => {
               <select
                 value={formData.categoryId || ''}
                 onChange={handleCategoryChange}
-                className="w-full px-3.5 py-2.5 text-xs bg-[#FAF7F2] border border-[#E8E0D5] focus:outline-none focus:border-[#292522]"
+                className={`w-full px-3.5 py-2.5 text-xs bg-[#FAF7F2] border ${
+                  errors.categoryId ? 'border-red-500 ring-1 ring-red-500' : 'border-[#E8E0D5]'
+                } focus:outline-none focus:border-[#292522]`}
               >
                 <option value="">Select a collection...</option>
                 {collections.map((col) => (
                   <option key={col.id} value={col.id}>
-                    {col.name}
+                    {col.name} {col.status === 'draft' ? '(Draft)' : ''}
                   </option>
                 ))}
               </select>
+              {errors.categoryId && (
+                <p className="text-[11px] text-red-600 mt-1">{errors.categoryId}</p>
+              )}
+              {collections.length === 0 && (
+                <p className="text-[11px] text-amber-700 mt-1">
+                  No collections available. <Link to="/admin/collections" className="underline font-semibold">Create a collection first</Link>.
+                </p>
+              )}
             </div>
 
             <div>

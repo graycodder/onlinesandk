@@ -53,7 +53,12 @@ export const CollectionListingPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-10">
           {collections.map((col) => {
-            const count = products.filter((p) => p.categoryId === col.id).length;
+            const count = products.filter(
+              (p) =>
+                p.categoryId === col.id ||
+                p.categoryId === col.slug ||
+                (p.categoryName && p.categoryName.toLowerCase() === col.name.toLowerCase())
+            ).length;
             return (
               <Link
                 key={col.id}

@@ -63,7 +63,17 @@ export const ShopPage: React.FC = () => {
 
         // Collection filter
         if (selectedCategory !== 'all') {
-          if (p.categoryId !== selectedCategory && p.categoryName?.toLowerCase() !== selectedCategory.toLowerCase()) {
+          const activeCol = collections.find(
+            (c) => c.id === selectedCategory || c.slug === selectedCategory
+          );
+          const matchesDirectId = p.categoryId === selectedCategory;
+          const matchesDirectSlug = Boolean(activeCol && (p.categoryId === activeCol.slug || p.categoryId === activeCol.id));
+          const matchesCategoryName = Boolean(
+            (p.categoryName && selectedCategory && p.categoryName.toLowerCase() === selectedCategory.toLowerCase()) ||
+            (activeCol && p.categoryName && p.categoryName.toLowerCase() === activeCol.name.toLowerCase())
+          );
+
+          if (!matchesDirectId && !matchesDirectSlug && !matchesCategoryName) {
             return false;
           }
         }
@@ -90,7 +100,7 @@ export const ShopPage: React.FC = () => {
         if (sortBy === 'featured') return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
         return a.displayOrder - b.displayOrder;
       });
-  }, [products, searchQuery, selectedCategory, selectedSize, filterType, maxPrice, sortBy]);
+  }, [products, collections, searchQuery, selectedCategory, selectedSize, filterType, maxPrice, sortBy]);
 
   // Extract all unique sizes from products
   const availableSizes = useMemo(() => {
@@ -253,19 +263,25 @@ export const ShopPage: React.FC = () => {
                 All Collections ({products.length})
               </button>
               {collections.map((col) => {
-                const count = products.filter((p) => p.categoryId === col.id).length;
+                const isSelected = selectedCategory === col.id || selectedCategory === col.slug;
+                const count = products.filter((p) =>
+                  p.categoryId === col.id ||
+                  p.categoryId === col.slug ||
+                  (p.categoryName && p.categoryName.toLowerCase() === col.name.toLowerCase())
+                ).length;
                 return (
                   <button
                     key={col.id}
                     type="button"
                     onClick={() => handleCategoryChange(col.id)}
-                    className={`w-full text-left py-1 px-2 transition-colors ${
-                      selectedCategory === col.id
+                    className={`w-full text-left py-1.5 px-2 transition-colors flex items-center justify-between ${
+                      isSelected
                         ? 'bg-[#292522] text-white font-medium'
                         : 'text-[#8A7869] hover:text-[#292522] hover:bg-[#F5EFE6]'
                     }`}
                   >
-                    {col.name} ({count})
+                    <span className="truncate pr-1">{col.name}</span>
+                    <span className="text-[11px] opacity-75 shrink-0">({count})</span>
                   </button>
                 );
               })}
@@ -411,16 +427,27 @@ export const ShopPage: React.FC = () => {
                   Collection
                 </span>
                 <select
-                  value={selectedCategory}
+                  value={
+                    collections.find((c) => c.id === selectedCategory || c.slug === selectedCategory)?.id ||
+                    selectedCategory
+                  }
                   onChange={(e) => handleCategoryChange(e.target.value)}
                   className="w-full bg-white border border-[#D9CEBF] py-2 px-3 text-xs"
                 >
-                  <option value="all">All Collections</option>
-                  {collections.map((col) => (
-                    <option key={col.id} value={col.id}>
-                      {col.name}
-                    </option>
-                  ))}
+                  <option value="all">All Collections ({products.length})</option>
+                  {collections.map((col) => {
+                    const count = products.filter(
+                      (p) =>
+                        p.categoryId === col.id ||
+                        p.categoryId === col.slug ||
+                        (p.categoryName && p.categoryName.toLowerCase() === col.name.toLowerCase())
+                    ).length;
+                    return (
+                      <option key={col.id} value={col.id}>
+                        {col.name} ({count})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

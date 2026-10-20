@@ -88,7 +88,10 @@ export const AdminProductsPage: React.FC = () => {
 
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
     const matchesCollection =
-      collectionFilter === 'all' || p.categoryId === collectionFilter;
+      collectionFilter === 'all' ||
+      p.categoryId === collectionFilter ||
+      (collections.find((c) => c.id === collectionFilter)?.name.toLowerCase() === p.categoryName?.toLowerCase()) ||
+      (collections.find((c) => c.id === collectionFilter)?.slug === p.categoryId);
 
     return matchesSearch && matchesStatus && matchesCollection;
   });

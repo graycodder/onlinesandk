@@ -8,7 +8,6 @@ import {
   deleteDoc,
   query,
   where,
-  orderBy,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
@@ -43,17 +42,21 @@ const saveLocalProducts = (products: Product[]) => {
 export const getPublishedProducts = async (): Promise<Product[]> => {
   if (isFirebaseConfigured() && db) {
     try {
+      // Query solely by status to avoid Firestore requiring a composite index.
+      // Sorting by displayOrder is performed in memory.
       const q = query(
         collection(db, 'products'),
-        where('status', '==', 'published'),
-        orderBy('displayOrder', 'asc')
+        where('status', '==', 'published')
       );
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        return snapshot.docs.map((docSnap) => ({
+        const items = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
         })) as Product[];
+        const sorted = items.sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
+        saveLocalProducts(sorted);
+        return sorted;
       }
     } catch (err) {
       console.warn('Firestore query error, falling back to local dataset:', err);
@@ -62,19 +65,24 @@ export const getPublishedProducts = async (): Promise<Product[]> => {
 
   // Fallback to local products
   const all = getLocalProducts();
-  return all.filter((p) => p.status === 'published').sort((a, b) => a.displayOrder - b.displayOrder);
+  return all
+    .filter((p) => p.status === 'published')
+    .sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
 };
 
 export const getAllProductsAdmin = async (): Promise<Product[]> => {
   if (isFirebaseConfigured() && db) {
     try {
-      const q = query(collection(db, 'products'), orderBy('displayOrder', 'asc'));
+      const q = query(collection(db, 'products'));
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        return snapshot.docs.map((docSnap) => ({
+        const items = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
         })) as Product[];
+        const sorted = items.sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
+        saveLocalProducts(sorted);
+        return sorted;
       } else {
         // Auto-seed initial products to Firestore so they exist as real documents
         try {
@@ -86,6 +94,7 @@ export const getAllProductsAdmin = async (): Promise<Product[]> => {
               updatedAt: serverTimestamp(),
             });
           }
+          saveLocalProducts(initialProducts);
           return initialProducts;
         } catch (seedErr) {
           console.warn('Auto-seed products failed:', seedErr);
@@ -93,32 +102,43 @@ export const getAllProductsAdmin = async (): Promise<Product[]> => {
       }
     } catch (err) {
       console.warn('Firestore admin query error, falling back to local dataset:', err);
+      // In case admin read permissions failed, attempt published read
+      try {
+        const pub = await getPublishedProducts();
+        if (pub.length > 0) return pub;
+      } catch (pubErr) {
+        console.warn('Fallback published products failed:', pubErr);
+      }
     }
   }
 
-  return getLocalProducts().sort((a, b) => a.displayOrder - b.displayOrder);
+  return getLocalProducts().sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
 };
 
 export const getProductBySlug = async (slug: string): Promise<Product | null> => {
+  // First attempt from published products (in-memory match by slug or id)
+  try {
+    const published = await getPublishedProducts();
+    const found = published.find((p) => p.slug === slug || p.id === slug);
+    if (found) return found;
+  } catch (err) {
+    console.warn('Error reading published products for slug lookup:', err);
+  }
+
   if (isFirebaseConfigured() && db) {
     try {
-      const q = query(
-        collection(db, 'products'),
-        where('slug', '==', slug),
-        where('status', '==', 'published')
-      );
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        const docSnap = snapshot.docs[0];
+      const docRef = doc(db, 'products', slug);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
         return { id: docSnap.id, ...docSnap.data() } as Product;
       }
     } catch (err) {
-      console.warn('Firestore slug query error:', err);
+      console.warn('Firestore product direct id lookup error:', err);
     }
   }
 
   const all = getLocalProducts();
-  return all.find((p) => p.slug === slug && p.status === 'published') || null;
+  return all.find((p) => (p.slug === slug || p.id === slug) && p.status === 'published') || null;
 };
 
 export const getProductById = async (id: string): Promise<Product | null> => {
@@ -141,6 +161,7 @@ export const getProductById = async (id: string): Promise<Product | null> => {
 export const createProduct = async (productData: Omit<Product, 'id'>): Promise<string> => {
   const cleanSlug = productData.slug ? slugify(productData.slug) : slugify(productData.name);
   const now = new Date().toISOString();
+  let createdId = `prod-${Date.now()}`;
 
   if (isFirebaseConfigured() && db) {
     try {
@@ -150,25 +171,25 @@ export const createProduct = async (productData: Omit<Product, 'id'>): Promise<s
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      return docRef.id;
+      createdId = docRef.id;
     } catch (err) {
       console.error('Error creating product in Firestore:', err);
       throw err;
     }
   }
 
-  const newId = `prod-${Date.now()}`;
+  // Dual-write to localStorage
   const newProduct: Product = {
     ...productData,
-    id: newId,
+    id: createdId,
     slug: cleanSlug,
     createdAt: now,
     updatedAt: now,
   };
-  const list = getLocalProducts();
+  const list = getLocalProducts().filter((p) => p.id !== createdId);
   list.unshift(newProduct);
   saveLocalProducts(list);
-  return newId;
+  return createdId;
 };
 
 export const updateProduct = async (id: string, updates: Partial<Product>): Promise<void> => {
@@ -181,7 +202,6 @@ export const updateProduct = async (id: string, updates: Partial<Product>): Prom
       const docRef = doc(db, 'products', id);
       const existingDoc = await getDoc(docRef);
       if (!existingDoc.exists()) {
-        // Document didn't exist in Firestore yet (e.g. initial seed product)
         const fallbackProd = initialProducts.find((p) => p.id === id) ||
           getLocalProducts().find((p) => p.id === id);
         await setDoc(
@@ -205,13 +225,13 @@ export const updateProduct = async (id: string, updates: Partial<Product>): Prom
           { merge: true }
         );
       }
-      return;
     } catch (err) {
       console.error('Error updating product in Firestore:', err);
       throw err;
     }
   }
 
+  // Dual-write to localStorage
   const list = getLocalProducts();
   const index = list.findIndex((p) => p.id === id);
   if (index !== -1) {
@@ -220,8 +240,29 @@ export const updateProduct = async (id: string, updates: Partial<Product>): Prom
       ...cleanUpdates,
       updatedAt: new Date().toISOString(),
     };
-    saveLocalProducts(list);
+  } else {
+    list.unshift({
+      id,
+      name: updates.name || 'Product',
+      slug: cleanUpdates.slug || id,
+      shortDescription: updates.shortDescription || '',
+      description: updates.description || '',
+      price: updates.price || 0,
+      categoryId: updates.categoryId || '',
+      categoryName: updates.categoryName || '',
+      images: updates.images || [],
+      primaryImage: updates.primaryImage || '',
+      sizes: updates.sizes || [],
+      colours: updates.colours || [],
+      featured: updates.featured || false,
+      newArrival: updates.newArrival ?? true,
+      status: updates.status || 'published',
+      displayOrder: updates.displayOrder || 1,
+      updatedAt: new Date().toISOString(),
+      ...cleanUpdates,
+    });
   }
+  saveLocalProducts(list);
 };
 
 export const deleteProduct = async (id: string): Promise<void> => {
@@ -229,7 +270,6 @@ export const deleteProduct = async (id: string): Promise<void> => {
     try {
       const docRef = doc(db, 'products', id);
       await deleteDoc(docRef);
-      return;
     } catch (err) {
       console.error('Error deleting product from Firestore:', err);
       throw err;

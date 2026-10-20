@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   PlusCircle,
   Edit,
@@ -9,6 +10,8 @@ import {
   Check,
   AlertCircle,
   Upload,
+  ExternalLink,
+  Plus,
 } from 'lucide-react';
 import {
   getAllCollectionsAdmin,
@@ -17,13 +20,15 @@ import {
   deleteCollection,
   toggleCollectionStatus,
 } from '../../services/collectionService';
+import { getAllProductsAdmin } from '../../services/productService';
 import { uploadProductImage, validateImageFile } from '../../services/storageService';
-import type { Collection } from '../../types';
+import type { Collection, Product } from '../../types';
 import { slugify } from '../../utils/formatters';
 import { ImageWithFallback } from '../../components/common/ImageWithFallback';
 
 export const AdminCollectionsPage: React.FC = () => {
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingCollection, setEditingCollection] = useState<Partial<Collection> | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,10 +41,14 @@ export const AdminCollectionsPage: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getAllCollectionsAdmin();
-      setCollections(data);
+      const [colData, prodData] = await Promise.all([
+        getAllCollectionsAdmin(),
+        getAllProductsAdmin(),
+      ]);
+      setCollections(colData);
+      setProducts(prodData);
     } catch (err) {
-      console.error('Failed to load collections:', err);
+      console.error('Failed to load collections or products:', err);
     } finally {
       setLoading(false);
     }
@@ -234,16 +243,51 @@ export const AdminCollectionsPage: React.FC = () => {
                 </div>
 
                 {/* Details */}
-                <div className="p-5 space-y-2">
-                  <h3 className="font-serif text-xl text-[#292522]">{col.name}</h3>
-                  <span className="text-[11px] text-[#8A7869] block">
-                    /{col.slug}
-                  </span>
+                <div className="p-5 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-serif text-xl text-[#292522]">{col.name}</h3>
+                      <span className="text-[11px] text-[#8A7869] block">
+                        /{col.slug}
+                      </span>
+                    </div>
+                    {(() => {
+                      const count = products.filter(
+                        (p) => p.categoryId === col.id || p.categoryId === col.slug || p.categoryName?.toLowerCase() === col.name.toLowerCase()
+                      ).length;
+                      return (
+                        <span className="px-2 py-0.5 text-[10px] bg-[#FAF7F2] border border-[#E8E0D5] text-[#8A7869] rounded-sm font-medium shrink-0">
+                          {count} {count === 1 ? 'garment' : 'garments'}
+                        </span>
+                      );
+                    })()}
+                  </div>
+
                   {col.description && (
                     <p className="text-xs text-[#8A7869] line-clamp-2 leading-relaxed">
                       {col.description}
                     </p>
                   )}
+
+                  {/* Quick Action: Add garment directly to this collection */}
+                  <div className="pt-2 flex items-center justify-between border-t border-[#F5EFE6]">
+                    <Link
+                      to={`/admin/products/new?collection=${col.id}`}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#292522] hover:text-[#8A7869] transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Garment to this Collection</span>
+                    </Link>
+                    <Link
+                      to={`/shop?collection=${col.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#8A7869] hover:text-[#292522] p-1"
+                      title="View collection in shop"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
                 </div>
               </div>
 

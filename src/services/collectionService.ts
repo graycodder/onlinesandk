@@ -8,7 +8,6 @@ import {
   deleteDoc,
   query,
   where,
-  orderBy,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
@@ -44,17 +43,21 @@ const saveLocalCollections = (collections: Collection[]) => {
 export const getPublishedCollections = async (): Promise<Collection[]> => {
   if (isFirebaseConfigured() && db) {
     try {
+      // Query solely by status to avoid Firestore requiring a composite index.
+      // Sorting by displayOrder is performed in memory.
       const q = query(
         collection(db, 'collections'),
-        where('status', '==', 'published'),
-        orderBy('displayOrder', 'asc')
+        where('status', '==', 'published')
       );
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        return snapshot.docs.map((docSnap) => ({
+        const items = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
         })) as Collection[];
+        const sorted = items.sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
+        saveLocalCollections(sorted);
+        return sorted;
       }
     } catch (err) {
       console.warn('Firestore collections query error, using local fallback:', err);
@@ -63,19 +66,22 @@ export const getPublishedCollections = async (): Promise<Collection[]> => {
 
   return getLocalCollections()
     .filter((c) => c.status === 'published')
-    .sort((a, b) => a.displayOrder - b.displayOrder);
+    .sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
 };
 
 export const getAllCollectionsAdmin = async (): Promise<Collection[]> => {
   if (isFirebaseConfigured() && db) {
     try {
-      const q = query(collection(db, 'collections'), orderBy('displayOrder', 'asc'));
+      const q = query(collection(db, 'collections'));
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        return snapshot.docs.map((docSnap) => ({
+        const items = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
         })) as Collection[];
+        const sorted = items.sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
+        saveLocalCollections(sorted);
+        return sorted;
       } else {
         // Auto-seed initial collections to Firestore so they exist as real documents
         try {
@@ -87,6 +93,7 @@ export const getAllCollectionsAdmin = async (): Promise<Collection[]> => {
               updatedAt: serverTimestamp(),
             });
           }
+          saveLocalCollections(initialCollections);
           return initialCollections;
         } catch (seedErr) {
           console.warn('Auto-seed collections failed:', seedErr);
@@ -94,32 +101,43 @@ export const getAllCollectionsAdmin = async (): Promise<Collection[]> => {
       }
     } catch (err) {
       console.warn('Firestore admin collections query error:', err);
+      // In case admin permissions prevented reading all docs, attempt published query
+      try {
+        const pub = await getPublishedCollections();
+        if (pub.length > 0) return pub;
+      } catch (pubErr) {
+        console.warn('Fallback published query failed:', pubErr);
+      }
     }
   }
 
-  return getLocalCollections().sort((a, b) => a.displayOrder - b.displayOrder);
+  return getLocalCollections().sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
 };
 
 export const getCollectionBySlug = async (slug: string): Promise<Collection | null> => {
+  // First attempt from published collections (in-memory match by slug or id)
+  try {
+    const published = await getPublishedCollections();
+    const found = published.find((c) => c.slug === slug || c.id === slug);
+    if (found) return found;
+  } catch (err) {
+    console.warn('Error reading published collections for slug lookup:', err);
+  }
+
   if (isFirebaseConfigured() && db) {
     try {
-      const q = query(
-        collection(db, 'collections'),
-        where('slug', '==', slug),
-        where('status', '==', 'published')
-      );
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        const docSnap = snapshot.docs[0];
+      const docRef = doc(db, 'collections', slug);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
         return { id: docSnap.id, ...docSnap.data() } as Collection;
       }
     } catch (err) {
-      console.warn('Firestore collection slug query error:', err);
+      console.warn('Firestore collection direct id lookup error:', err);
     }
   }
 
   const all = getLocalCollections();
-  return all.find((c) => c.slug === slug && c.status === 'published') || null;
+  return all.find((c) => (c.slug === slug || c.id === slug) && c.status === 'published') || null;
 };
 
 export const getCollectionById = async (id: string): Promise<Collection | null> => {
@@ -142,6 +160,7 @@ export const getCollectionById = async (id: string): Promise<Collection | null> 
 export const createCollection = async (collectionData: Omit<Collection, 'id'>): Promise<string> => {
   const cleanSlug = collectionData.slug ? slugify(collectionData.slug) : slugify(collectionData.name);
   const now = new Date().toISOString();
+  let createdId = `col-${Date.now()}`;
 
   if (isFirebaseConfigured() && db) {
     try {
@@ -151,25 +170,25 @@ export const createCollection = async (collectionData: Omit<Collection, 'id'>): 
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      return docRef.id;
+      createdId = docRef.id;
     } catch (err) {
       console.error('Error creating collection in Firestore:', err);
       throw err;
     }
   }
 
-  const newId = `col-${Date.now()}`;
+  // Dual-write to localStorage so local fallback always has the new collection
   const newCol: Collection = {
     ...collectionData,
-    id: newId,
+    id: createdId,
     slug: cleanSlug,
     createdAt: now,
     updatedAt: now,
   };
-  const list = getLocalCollections();
+  const list = getLocalCollections().filter((c) => c.id !== createdId);
   list.push(newCol);
   saveLocalCollections(list);
-  return newId;
+  return createdId;
 };
 
 export const updateCollection = async (id: string, updates: Partial<Collection>): Promise<void> => {
@@ -183,8 +202,6 @@ export const updateCollection = async (id: string, updates: Partial<Collection>)
       const existingDoc = await getDoc(docRef);
       
       if (!existingDoc.exists()) {
-        // Document didn't exist in Firestore yet (e.g. initial seed item)
-        // Find default base collection so full document is saved
         const fallbackCol = initialCollections.find((c) => c.id === id) ||
           getLocalCollections().find((c) => c.id === id);
         await setDoc(
@@ -208,13 +225,13 @@ export const updateCollection = async (id: string, updates: Partial<Collection>)
           { merge: true }
         );
       }
-      return;
     } catch (err) {
       console.error('Error updating collection in Firestore:', err);
       throw err;
     }
   }
 
+  // Dual-write to localStorage
   const list = getLocalCollections();
   const index = list.findIndex((c) => c.id === id);
   if (index !== -1) {
@@ -223,8 +240,20 @@ export const updateCollection = async (id: string, updates: Partial<Collection>)
       ...cleanUpdates,
       updatedAt: new Date().toISOString(),
     };
-    saveLocalCollections(list);
+  } else {
+    list.push({
+      id,
+      name: updates.name || 'Collection',
+      slug: cleanUpdates.slug || id,
+      description: updates.description || '',
+      coverImage: updates.coverImage || '',
+      displayOrder: updates.displayOrder || 1,
+      status: updates.status || 'published',
+      updatedAt: new Date().toISOString(),
+      ...cleanUpdates,
+    });
   }
+  saveLocalCollections(list);
 };
 
 export const deleteCollection = async (id: string): Promise<void> => {
@@ -241,7 +270,6 @@ export const deleteCollection = async (id: string): Promise<void> => {
     try {
       const docRef = doc(db, 'collections', id);
       await deleteDoc(docRef);
-      return;
     } catch (err) {
       console.error('Error deleting collection from Firestore:', err);
       throw err;

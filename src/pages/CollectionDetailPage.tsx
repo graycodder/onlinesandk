@@ -23,7 +23,12 @@ export const CollectionDetailPage: React.FC = () => {
 
         if (col) {
           const allProducts = await getPublishedProducts();
-          const filtered = allProducts.filter((p) => p.categoryId === col.id);
+          const filtered = allProducts.filter(
+            (p) =>
+              p.categoryId === col.id ||
+              p.categoryId === col.slug ||
+              (p.categoryName && p.categoryName.toLowerCase() === col.name.toLowerCase())
+          );
           setProducts(filtered);
         }
       } catch (err) {
